@@ -204,6 +204,9 @@ public<#if helper.isDiscriminatedParentTypeDefinition()> abstract</#if> class ${
             <#assign simpleTypeReference = arrayField.type>
             for(${arrayField.type.name} element : ${arrayField.name}) {
                 boolean last = ++i >= ${arrayField.name}.length;
+                System.out.println(last);
+                System.out.println(element);
+                System.out.println(element.getLengthInBitsConditional(last));
                 lengthInBits += element.getLengthInBitsConditional(last);
             }
         <#else>

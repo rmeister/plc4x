@@ -89,7 +89,7 @@ public class SecureChannel {
     private static final PascalString APPLICATION_URI = new PascalString("urn:apache:plc4x:client");
     private static final PascalString PRODUCT_URI = new PascalString("urn:apache:plc4x:client");
     private static final PascalString APPLICATION_TEXT = new PascalString("OPCUA client for the Apache PLC4X:PLC4J project");
-    private static final int DEFAULT_CONNECTION_LIFETIME = 36000000;
+    private static final long DEFAULT_CONNECTION_LIFETIME = 36000000;
 
 
     private final String sessionName = "UaSession:" + APPLICATION_TEXT.getStringValue() + ":" + RandomStringUtils.random(20, true, true);
@@ -128,6 +128,7 @@ public class SecureChannel {
     private RequestTransactionManager tm;
 
     private Boolean isConnected;
+    private long lifetime = DEFAULT_CONNECTION_LIFETIME;
 
     private CompletableFuture<Void> keepAlive;
 
@@ -172,18 +173,25 @@ public class SecureChannel {
     public void submit(ConversationContext<OpcuaAPU> context, Consumer<TimeoutException> onTimeout, BiConsumer<OpcuaAPU, Throwable> error, Consumer<OpcuaMessageResponse> consumer, WriteBuffer buffer) {
         int transactionId = channelTransactionManager.getTransactionIdentifier();
 
-        OpcuaMessageRequest readMessageRequest = new OpcuaMessageRequest(FINAL_CHUNK,
+        OpcuaMessageRequest messageRequest = new OpcuaMessageRequest(FINAL_CHUNK,
             channelId.get(),
             tokenId.get(),
             transactionId,
             transactionId,
             buffer.getData());
 
+        final OpcuaAPU apu;
+        try {
+            if (this.isEncrypted) {
+                apu = OpcuaAPUIO.staticParse(encryptionHandler.encodeMessage(messageRequest, buffer.getData()), false);
+            } else {
+                apu = new OpcuaAPU(messageRequest);
+            }
+        } catch (ParseException e) {
+           throw new PlcRuntimeException("Unable to encrypt message before sending");
+        }
+
         Consumer<Integer> requestConsumer = t -> {
-            LOGGER.info("Just about to send it");
-            RequestTransactionManager.RequestTransaction transaction = tm.startRequest();
-            LOGGER.info("Just about to send it2");
-            OpcuaAPU apu = new OpcuaAPU(readMessageRequest);
             try {
                 context.sendRequest(apu)
                     .expectResponse(OpcuaAPU.class, REQUEST_TIMEOUT)
@@ -192,14 +200,20 @@ public class SecureChannel {
                     .check(p -> p.getMessage() instanceof OpcuaMessageResponse)
                     .unwrap(p -> (OpcuaMessageResponse) p.getMessage())
                     .handle(opcuaResponse -> {
-                        LOGGER.info("Sent Alaready");
+                        try {
+                            if (this.isEncrypted) {
+                                opcuaResponse = (OpcuaMessageResponse) OpcuaAPUIO.staticParse(encryptionHandler.decodeMessage(opcuaResponse, opcuaResponse.getMessage()), true).getMessage();
+                            }
+                        } catch (ParseException e) {
+                            throw new PlcRuntimeException("Error while decoding message");
+                        }
                         consumer.accept(opcuaResponse);
                     });
             } catch (Exception e) {
-                LOGGER.info("Just about to send it3");
+                throw new PlcRuntimeException("Error while sending message");
             }
         };
-        LOGGER.info("Submitting Transaction to TransactionManager {}", transactionId);
+        LOGGER.debug("Submitting Transaction to TransactionManager {}", transactionId);
         channelTransactionManager.submit(requestConsumer, transactionId);
     }
 
@@ -249,7 +263,7 @@ public class SecureChannel {
                 SecurityTokenRequestType.securityTokenRequestTypeIssue,
                 MessageSecurityMode.messageSecurityModeSignAndEncrypt,
                 new PascalByteString(clientNonce.length, clientNonce),
-                DEFAULT_CONNECTION_LIFETIME);
+                lifetime);
         } else {
             openSecureChannelRequest = new OpenSecureChannelRequest(
                 requestHeader,
@@ -257,7 +271,7 @@ public class SecureChannel {
                 SecurityTokenRequestType.securityTokenRequestTypeIssue,
                 MessageSecurityMode.messageSecurityModeNone,
                 NULL_BYTE_STRING,
-                DEFAULT_CONNECTION_LIFETIME);
+                lifetime);
         }
 
         ExpandedNodeId expandedNodeId = new ExpandedNodeId(false,           //Namespace Uri Specified
@@ -725,7 +739,7 @@ public class SecureChannel {
             SecurityTokenRequestType.securityTokenRequestTypeIssue,
             MessageSecurityMode.messageSecurityModeNone,
             NULL_BYTE_STRING,
-            DEFAULT_CONNECTION_LIFETIME);
+            lifetime);
 
         ExpandedNodeId expandedNodeId = new ExpandedNodeId(false,           //Namespace Uri Specified
             false,            //Server Index Specified
@@ -951,7 +965,7 @@ public class SecureChannel {
                         SecurityTokenRequestType.securityTokenRequestTypeIssue,
                         MessageSecurityMode.messageSecurityModeSignAndEncrypt,
                         new PascalByteString(clientNonce.length, clientNonce),
-                        DEFAULT_CONNECTION_LIFETIME);
+                        lifetime);
                 } else {
                     openSecureChannelRequest = new OpenSecureChannelRequest(
                         requestHeader,
@@ -959,7 +973,7 @@ public class SecureChannel {
                         SecurityTokenRequestType.securityTokenRequestTypeIssue,
                         MessageSecurityMode.messageSecurityModeNone,
                         NULL_BYTE_STRING,
-                        DEFAULT_CONNECTION_LIFETIME);
+                        lifetime);
                 }
 
                 ExpandedNodeId expandedNodeId = new ExpandedNodeId(false,           //Namespace Uri Specified
@@ -1013,9 +1027,11 @@ public class SecureChannel {
                                     } else {
                                         LOGGER.debug("Got Secure Response Connection Response");
                                         OpenSecureChannelResponse openSecureChannelResponse = (OpenSecureChannelResponse) message.getBody();
+                                        ChannelSecurityToken token = (ChannelSecurityToken) openSecureChannelResponse.getSecurityToken();
                                         certificateThumbprint = opcuaOpenResponse.getReceiverCertificateThumbprint();
-                                        tokenId.set((int) ((ChannelSecurityToken) openSecureChannelResponse.getSecurityToken()).getTokenId());
-                                        channelId.set((int) ((ChannelSecurityToken) openSecureChannelResponse.getSecurityToken()).getChannelId());
+                                        tokenId.set((int) token.getTokenId());
+                                        channelId.set((int) token.getChannelId());
+                                        lifetime = token.getRevisedLifetime();
                                     }
                                 } catch (ParseException e) {
                                     e.printStackTrace();

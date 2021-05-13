@@ -19,6 +19,7 @@
 
 package org.apache.plc4x.java.opcua.context;
 
+import org.apache.plc4x.java.api.exceptions.PlcRuntimeException;
 import org.apache.plc4x.java.opcua.readwrite.OpcuaAPU;
 import org.apache.plc4x.java.opcua.readwrite.OpcuaMessageRequest;
 import org.apache.plc4x.java.opcua.readwrite.OpcuaMessageResponse;
@@ -55,10 +56,16 @@ public class SecureChannelTransactionManager {
             int newTransactionId = getActiveTransactionIdentifier();
             if (!queue.isEmpty()) {
                 Transaction t = queue.remove(newTransactionId);
+                if (t == null) {
+                    LOGGER.info("Length of Queue is {}", queue.size());
+                    LOGGER.info("Transaction ID is {}", newTransactionId);
+                    LOGGER.info("Map  is {}", queue);
+                    throw new PlcRuntimeException("Transaction Id not found in queued messages {}");
+                }
                 submit(t.getConsumer(), t.getTransactionId());
             }
         } else {
-            LOGGER.info("Storing out of order transaction");
+            LOGGER.info("Storing out of order transaction {}", transactionId);
             queue.put(transactionId, new Transaction(onSend, transactionId));
         }
     }
@@ -82,7 +89,7 @@ public class SecureChannelTransactionManager {
      * @return the next sequential transaction identifier
      */
     private int getActiveTransactionIdentifier() {
-        int transactionId = activeTransactionId.getAndIncrement();
+        int transactionId = activeTransactionId.incrementAndGet();
         if(activeTransactionId.get() == DEFAULT_MAX_REQUEST_ID) {
             activeTransactionId.set(1);
         }

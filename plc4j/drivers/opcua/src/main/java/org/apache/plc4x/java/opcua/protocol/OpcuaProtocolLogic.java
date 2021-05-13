@@ -814,7 +814,9 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
 
             ArrayList<String> fields = new ArrayList<>( subscriptionRequest.getFieldNames() );
 
-            long cycleTime = ((DefaultPlcSubscriptionField) subscriptionRequest.getField(fields.get(0))).getDuration().orElse(Duration.ofSeconds(1)).toMillis();
+            //long cycleTime = ((DefaultPlcSubscriptionField) subscriptionRequest.getField(fields.get(0))).getDuration().orElse(Duration.ofMillis(50)).toMillis();
+            long cycleTime = (Duration.ofMillis(50)).toMillis();
+
 
             try {
                 CompletableFuture<CreateSubscriptionResponse> subscription = onSubscribeCreateSubscription(cycleTime);

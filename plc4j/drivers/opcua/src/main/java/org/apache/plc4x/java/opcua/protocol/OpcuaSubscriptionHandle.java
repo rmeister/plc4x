@@ -246,14 +246,19 @@ public class OpcuaSubscriptionHandle extends DefaultPlcSubscriptionHandle {
                         SecureChannel.REQUEST_TIMEOUT_LONG,
                         OpcuaProtocolLogic.NULL_EXTENSION_OBJECT);
 
-                    SubscriptionAcknowledgement[] acks = null;
-                    int ackLength = outstandingAcknowledgements.size();
-                    if (outstandingAcknowledgements.size() > 0) {
-                        acks = new SubscriptionAcknowledgement[outstandingAcknowledgements.size()];
-                        for (int i = 0; i < outstandingAcknowledgements.size(); i++) {
-                            acks[i] = new SubscriptionAcknowledgement(this.subscriptionId, outstandingAcknowledgements.remove());
-                        }
+
+                    //Make a copy of the outstanding requests.
+                    LinkedList<Long> outstandingAcknowledgementsSnapshot = (LinkedList<Long>) outstandingAcknowledgements.clone();
+
+                    SubscriptionAcknowledgement[] acks = new SubscriptionAcknowledgement[outstandingAcknowledgementsSnapshot.size()];;
+                    int ackLength = outstandingAcknowledgementsSnapshot.size();
+
+                    int i = 0;
+                    for (long outstanding : outstandingAcknowledgementsSnapshot) {
+                        acks[i] = new SubscriptionAcknowledgement(this.subscriptionId, outstanding);
+                        i++;
                     }
+                    outstandingAcknowledgements.removeAll(outstandingAcknowledgementsSnapshot);
 
                     PublishRequest publishRequest = new PublishRequest(
                         requestHeader,
