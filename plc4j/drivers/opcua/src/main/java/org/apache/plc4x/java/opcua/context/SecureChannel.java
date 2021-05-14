@@ -125,7 +125,6 @@ public class SecureChannel {
     private DriverContext driverContext;
     ConversationContext<OpcuaAPU> context;
     private SecureChannelTransactionManager channelTransactionManager = new SecureChannelTransactionManager();
-    private RequestTransactionManager tm;
 
     private Boolean isConnected;
     private long lifetime = DEFAULT_CONNECTION_LIFETIME;
@@ -162,12 +161,6 @@ public class SecureChannel {
         }
         this.keyStoreFile = configuration.getKeyStoreFile();
         this.isConnected = false;
-
-
-        // Initialize Transaction Manager.
-
-        this.tm = new RequestTransactionManager(1);
-
     }
 
     public void submit(ConversationContext<OpcuaAPU> context, Consumer<TimeoutException> onTimeout, BiConsumer<OpcuaAPU, Throwable> error, Consumer<OpcuaMessageResponse> consumer, WriteBuffer buffer) {
@@ -942,7 +935,7 @@ public class SecureChannel {
             while(true) {
 
                 try {
-                    Thread.sleep(30000);
+                    Thread.sleep((long) Math.ceil(this.lifetime * 0.75f));
                 } catch (InterruptedException e) {
                     LOGGER.trace("Interrupted Exception");
                 }

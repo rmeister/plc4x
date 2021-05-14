@@ -217,6 +217,14 @@ public class OpcuaSubscriptionHandle extends DefaultPlcSubscriptionHandle {
         return future;
     }
 
+    private void sleep() {
+        try {
+            Thread.sleep(this.cycleTime);
+        } catch (InterruptedException e) {
+            LOGGER.trace("Interrupted Exception");
+        }
+    }
+
     /**
      *
      * @return
@@ -225,39 +233,24 @@ public class OpcuaSubscriptionHandle extends DefaultPlcSubscriptionHandle {
         LOGGER.info("Starting Subscription");
         CompletableFuture.supplyAsync(() -> {
             try {
-                LinkedList<Long> outstandingAcknowledgements = new LinkedList<>();
+                LinkedList<SubscriptionAcknowledgement> outstandingAcknowledgements = new LinkedList<>();
                 LinkedList<Long> outstandingRequests = new LinkedList<>();
-                AtomicInteger sequenceNumber = new AtomicInteger(1);
                 while (!this.destroy.get()) {
-                    LOGGER.trace("SubscriberLoop");
-                    try {
-                        Thread.sleep(this.cycleTime);
-                    } catch (InterruptedException e) {
-                        LOGGER.trace("Interrupted Exception");
-                    }
-
                     long requestHandle = channel.getRequestHandle();
 
                     RequestHeader requestHeader = new RequestHeader(channel.getAuthenticationToken(),
                         SecureChannel.getCurrentDateTime(),
-                        channel.getRequestHandle(),
+                        requestHandle,
                         0L,
                         OpcuaProtocolLogic.NULL_STRING,
                         SecureChannel.REQUEST_TIMEOUT_LONG,
                         OpcuaProtocolLogic.NULL_EXTENSION_OBJECT);
 
-
-                    //Make a copy of the outstanding requests.
+                    //Make a copy of the outstanding requests so it isn't modified while we are putting the ack list together.
                     LinkedList<Long> outstandingAcknowledgementsSnapshot = (LinkedList<Long>) outstandingAcknowledgements.clone();
-
                     SubscriptionAcknowledgement[] acks = new SubscriptionAcknowledgement[outstandingAcknowledgementsSnapshot.size()];;
+                    outstandingAcknowledgementsSnapshot.toArray(acks);
                     int ackLength = outstandingAcknowledgementsSnapshot.size();
-
-                    int i = 0;
-                    for (long outstanding : outstandingAcknowledgementsSnapshot) {
-                        acks[i] = new SubscriptionAcknowledgement(this.subscriptionId, outstanding);
-                        i++;
-                    }
                     outstandingAcknowledgements.removeAll(outstandingAcknowledgementsSnapshot);
 
                     PublishRequest publishRequest = new PublishRequest(
@@ -289,10 +282,9 @@ public class OpcuaSubscriptionHandle extends DefaultPlcSubscriptionHandle {
                                 e.printStackTrace();
                             }
                             outstandingRequests.remove(((ResponseHeader) responseMessage.getResponseHeader()).getRequestHandle());
-                            //outstandingAcknowledgements.add(((ResponseHeader) responseMessage.getResponseHeader()).getRequestHandle());
 
                             for (long availableSequenceNumber : responseMessage.getAvailableSequenceNumbers()) {
-                                outstandingAcknowledgements.add(availableSequenceNumber);
+                                outstandingAcknowledgements.add(new SubscriptionAcknowledgement(this.subscriptionId, availableSequenceNumber));
                             }
 
                             for (ExtensionObject notificationMessage : ((NotificationMessage) responseMessage.getNotificationMessage()).getNotificationData()) {
@@ -300,15 +292,12 @@ public class OpcuaSubscriptionHandle extends DefaultPlcSubscriptionHandle {
                                 if (notification instanceof DataChangeNotification) {
                                     LOGGER.info("Found a Data Change notification");
                                     ExtensionObjectDefinition[] items = ((DataChangeNotification) notification).getMonitoredItems();
-                                    MonitoredItemNotification[] monitoredItems = Arrays.copyOf(items, items.length, MonitoredItemNotification[].class);
-                                    onSubscriptionValue(monitoredItems);
+                                    onSubscriptionValue(Arrays.stream(items).toArray(MonitoredItemNotification[]::new));
+
                                 } else {
                                     LOGGER.warn("Unsupported Notification type");
                                 }
                             }
-
-                            // Pass the response back to the application.
-
                         };
 
                         /* Functional Consumer example using inner class */
@@ -323,7 +312,7 @@ public class OpcuaSubscriptionHandle extends DefaultPlcSubscriptionHandle {
 
                         outstandingRequests.add(requestHandle);
                         channel.submit(context, timeout, error, consumer, buffer);
-
+                        sleep();
                     } catch (ParseException e) {
                         LOGGER.warn("Unable to serialize subscription request");
                         e.printStackTrace();
@@ -347,11 +336,6 @@ public class OpcuaSubscriptionHandle extends DefaultPlcSubscriptionHandle {
      */
     public void stopSubscriber() {
         this.destroy.set(true);
-    }
-
-
-    public long getClientHandle() {
-        return clientHandle;
     }
 
     /**
