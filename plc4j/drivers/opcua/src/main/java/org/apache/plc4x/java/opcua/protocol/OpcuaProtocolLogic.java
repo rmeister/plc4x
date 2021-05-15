@@ -133,6 +133,7 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
         for (Map.Entry<Long, OpcuaSubscriptionHandle> subscriber : subscriptions.entrySet()) {
             subscriber.getValue().stopSubscriber();
         }
+
         channel.onDisconnect(context);
     }
 
@@ -781,7 +782,6 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
 
     private PlcWriteResponse writeResponse(DefaultPlcWriteRequest request, WriteResponse writeResponse) {
         Map<String, PlcResponseCode> responseMap = new HashMap<>();
-
         StatusCode[] results = writeResponse.getResults();
         Iterator<String> responseIterator = request.getFieldNames().iterator();
         for (int i = 0; i < request.getFieldNames().size(); i++ ) {
@@ -798,7 +798,6 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
                     responseMap.put(fieldName, PlcResponseCode.REMOTE_ERROR);
             }
         }
-
         return new DefaultPlcWriteResponse(request, responseMap);
     }
 
@@ -807,24 +806,15 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
     public CompletableFuture<PlcSubscriptionResponse> subscribe(PlcSubscriptionRequest subscriptionRequest) {
         CompletableFuture<PlcSubscriptionResponse> future = CompletableFuture.supplyAsync(() -> {
             Map<String, ResponseItem<PlcSubscriptionHandle>> values = new HashMap<>();
-
-            boolean isFirst = true;
             long subscriptionId = -1L;
-            List<MonitoredItemCreateRequest> requestList = new LinkedList<>();
-
             ArrayList<String> fields = new ArrayList<>( subscriptionRequest.getFieldNames() );
-
-            //long cycleTime = ((DefaultPlcSubscriptionField) subscriptionRequest.getField(fields.get(0))).getDuration().orElse(Duration.ofMillis(50)).toMillis();
-            long cycleTime = (Duration.ofMillis(50)).toMillis();
-
+            long cycleTime = ((DefaultPlcSubscriptionField) subscriptionRequest.getField(fields.get(0))).getDuration().orElse(Duration.ofMillis(1000)).toMillis();
 
             try {
                 CompletableFuture<CreateSubscriptionResponse> subscription = onSubscribeCreateSubscription(cycleTime);
                 CreateSubscriptionResponse response = subscription.get(SecureChannel.REQUEST_TIMEOUT_LONG, TimeUnit.MILLISECONDS);
                 subscriptionId = response.getSubscriptionId();
-
                 subscriptions.put(subscriptionId, new OpcuaSubscriptionHandle(context, this, channel, subscriptionRequest, subscriptionId, cycleTime));
-
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 LOGGER.warn("Unable to subscribe Elements because of: {}", e.getMessage());
@@ -899,25 +889,27 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
             };
 
             /* Functional Consumer example using inner class */
-            Consumer<TimeoutException> timeout = t -> {
-
+            Consumer<TimeoutException> timeout = e -> {
+                LOGGER.error("Timeout while waiting on the crate subscription response");
+                e.printStackTrace();
                 // Pass the response back to the application.
                 future.completeExceptionally(t);
             };
 
             /* Functional Consumer example using inner class */
-            BiConsumer<OpcuaAPU, Throwable> error = (message, t) -> {
-
+            BiConsumer<OpcuaAPU, Throwable> error = (message, e) -> {
+                LOGGER.error("Error while creating the subscription");
+                e.printStackTrace();
                 // Pass the response back to the application.
-                future.completeExceptionally(t);
+                future.completeExceptionally(e);
             };
 
             channel.submit(context, timeout, error, consumer, buffer);
-
         } catch (ParseException e) {
-            LOGGER.error("Unable to serialise the ReadRequest");
+            LOGGER.error("Error while creating the subscription");
+            e.printStackTrace();
+            future.completeExceptionally(e);
         }
-
         return future;
     }
 
@@ -926,18 +918,10 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
     @Override
     public CompletableFuture<PlcUnsubscriptionResponse> unsubscribe(PlcUnsubscriptionRequest unsubscriptionRequest) {
         unsubscriptionRequest.getSubscriptionHandles().forEach(o -> {
-            OpcuaSubscriptionHandle opcSubHandle = (OpcuaSubscriptionHandle) o;
-            /*
-            try {
-                client.getSubscriptionManager().deleteSubscription(opcSubHandle.getClientHandle()).get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                LOGGER.warn("Unable to unsubscribe Elements because of: {}", e.getMessage());
-            } catch (ExecutionException e) {
-                LOGGER.warn("Unable to unsubscribe Elements because of: {}", e.getMessage());
-            }*/
+            OpcuaSubscriptionHandle opcuaSubHandle = (OpcuaSubscriptionHandle) o;
+            opcuaSubHandle.stopSubscriber();
+            subscriptions.remove(opcuaSubHandle);
         });
-
         return null;
     }
 
@@ -950,7 +934,6 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
             final PlcConsumerRegistration consumerRegistration = subscriptionHandle.register(consumer);
             registrations.add(consumerRegistration);
         }
-
         return new DefaultPlcConsumerRegistration((PlcSubscriber) this, consumer, handles.toArray(new PlcSubscriptionHandle[0]));
     }
 
@@ -959,30 +942,9 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
         registration.unregister();
     }
 
-
-
-
-
-
-
-    /**
-     * Gets the Conversation Context.
-     *
-     * @return int representing the token identifier
-     */
-    public ConversationContext<OpcuaAPU> getConversationContext() {
-        return this.context;
-    }
-
-
-
-
-
     public static long getDateTime(long dateTime) {
         return (dateTime - EPOCH_OFFSET) / 10000;
     }
-
-
 
     private GuidValue toGuidValue(String identifier) {
         LOGGER.error("Querying Guid nodes is not supported");
