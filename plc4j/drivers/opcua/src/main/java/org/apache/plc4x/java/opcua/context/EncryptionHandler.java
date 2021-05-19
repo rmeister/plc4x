@@ -23,6 +23,7 @@ import org.apache.plc4x.java.api.exceptions.PlcRuntimeException;
 import org.apache.plc4x.java.opcua.protocol.OpcuaProtocolLogic;
 import org.apache.plc4x.java.opcua.readwrite.MessagePDU;
 import org.apache.plc4x.java.opcua.readwrite.OpcuaAPU;
+import org.apache.plc4x.java.opcua.readwrite.OpcuaMessageResponse;
 import org.apache.plc4x.java.opcua.readwrite.OpcuaOpenResponse;
 import org.apache.plc4x.java.opcua.readwrite.io.OpcuaAPUIO;
 import org.apache.plc4x.java.spi.generation.ParseException;
@@ -53,12 +54,18 @@ public class EncryptionHandler {
     private X509Certificate clientCertificate;
     private PrivateKey clientPrivateKey;
     private PublicKey clientPublicKey;
+    private String securitypolicy;
 
-    public EncryptionHandler(CertificateKeyPair ckp, byte[] senderCertificate) {
-        this.clientPrivateKey = ckp.getKeyPair().getPrivate();
-        this.clientPublicKey = ckp.getKeyPair().getPublic();
-        this.clientCertificate = ckp.getCertificate();
-        this.serverCertificate = getCertificateX509(senderCertificate);
+    public EncryptionHandler(CertificateKeyPair ckp, byte[] senderCertificate, String securityPolicy) {
+        if (ckp != null) {
+            this.clientPrivateKey = ckp.getKeyPair().getPrivate();
+            this.clientPublicKey = ckp.getKeyPair().getPublic();
+            this.clientCertificate = ckp.getCertificate();
+        }
+        if (senderCertificate != null) {
+            this.serverCertificate = getCertificateX509(senderCertificate);
+        }
+        this.securitypolicy = securityPolicy;
     }
 
     public ReadBuffer encodeMessage(MessagePDU pdu, byte[] message) {
@@ -99,24 +106,44 @@ public class EncryptionHandler {
         }
     }
 
-    public ReadBuffer decodeMessage(MessagePDU pdu, byte[] message) throws ParseException {
-        int encryptedLength = pdu.getLengthInBytes();
-        int encryptedMessageLength = message.length + 8;
-        int headerLength = encryptedLength - encryptedMessageLength;
-        int numberOfBlocks = encryptedMessageLength / 256;
-        WriteBuffer buf = new WriteBuffer(headerLength + numberOfBlocks * 256,true);
-        OpcuaAPUIO.staticSerialize(buf, new OpcuaAPU(pdu));
-        byte[] data = buf.getBytes(headerLength, encryptedLength);
-        buf.setPos(headerLength);
-        decryptBlock(buf, data);
-        int tempPos = buf.getPos();
-        buf.setPos(0);
-        if (!checkSignature(buf.getBytes(0, tempPos))) {
-            LOGGER.info("Signature verification failed: - {}", buf.getBytes(0, tempPos - 256));
+    public OpcuaAPU decodeMessage(OpcuaAPU pdu) {
+        LOGGER.info("Decoding Message with Security policy {}", securitypolicy);
+        switch (securitypolicy) {
+            case "None":
+                return pdu;
+            case "Basic256Sha256":
+                byte[] message;
+                if (pdu.getMessage() instanceof OpcuaOpenResponse) {
+                    message = ((OpcuaOpenResponse) pdu.getMessage()).getMessage();
+                } else if (pdu.getMessage() instanceof OpcuaMessageResponse) {
+                    message = ((OpcuaMessageResponse) pdu.getMessage()).getMessage();
+                } else {
+                    return pdu;
+                }
+                try {
+                    int encryptedLength = pdu.getLengthInBytes();
+                    int encryptedMessageLength = message.length + 8;
+                    int headerLength = encryptedLength - encryptedMessageLength;
+                    int numberOfBlocks = encryptedMessageLength / 256;
+                    WriteBuffer buf = new WriteBuffer(headerLength + numberOfBlocks * 256, true);
+                    OpcuaAPUIO.staticSerialize(buf, pdu);
+                    byte[] data = buf.getBytes(headerLength, encryptedLength);
+                    buf.setPos(headerLength);
+                    decryptBlock(buf, data);
+                    int tempPos = buf.getPos();
+                    buf.setPos(0);
+                    if (!checkSignature(buf.getBytes(0, tempPos))) {
+                        LOGGER.info("Signature verification failed: - {}", buf.getBytes(0, tempPos - 256));
+                    }
+                    buf.setPos(4);
+                    buf.writeInt(32, tempPos - 256);
+                    ReadBuffer readBuffer = new ReadBuffer(buf.getBytes(0, tempPos - 256), true);
+                    return OpcuaAPUIO.staticParse(readBuffer, true);
+                } catch (ParseException e) {
+                    LOGGER.error("Unable to Parse encrypted message");
+                }
         }
-        buf.setPos(4);
-        buf.writeInt(32, tempPos - 256);
-        return new ReadBuffer(buf.getBytes(0, tempPos - 256), true);
+        return pdu;
     }
 
     public void decryptBlock(WriteBuffer buf, byte[] data) {

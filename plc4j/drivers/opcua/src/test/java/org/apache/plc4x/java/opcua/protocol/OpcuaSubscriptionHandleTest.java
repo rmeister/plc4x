@@ -23,13 +23,19 @@ import org.apache.plc4x.java.api.PlcConnection;
 import org.apache.plc4x.java.api.messages.PlcSubscriptionRequest;
 import org.apache.plc4x.java.api.messages.PlcSubscriptionResponse;
 import org.apache.plc4x.java.api.model.PlcSubscriptionHandle;
+import org.apache.plc4x.java.api.types.PlcResponseCode;
+import org.apache.plc4x.java.opcua.OpcuaPlcDriverTest;
 import org.assertj.core.api.Assertions;
 import org.eclipse.milo.examples.server.ExampleServer;
 import org.junit.jupiter.api.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  */
 public class OpcuaSubscriptionHandleTest {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(OpcuaPlcDriverTest.class);
 
     private static ExampleServer exampleServer;
 
@@ -69,8 +75,6 @@ public class OpcuaSubscriptionHandleTest {
 
     }
 
-
-
     @BeforeAll
     public static void setup() {
         try {
@@ -91,48 +95,44 @@ public class OpcuaSubscriptionHandleTest {
     }
 
     @Test
-    public void subscribeVariables() {
-        try {
-            PlcConnection opcuaConnection = new PlcDriverManager().getConnection(tcpConnectionAddress);
-            assert opcuaConnection.isConnected();
+    public void subscribeVariables() throws Exception {
+        PlcConnection opcuaConnection = new PlcDriverManager().getConnection(tcpConnectionAddress);
+        assert opcuaConnection.isConnected();
 
-            PlcSubscriptionRequest.Builder builder = opcuaConnection.subscriptionRequestBuilder();
+        PlcSubscriptionRequest.Builder builder = opcuaConnection.subscriptionRequestBuilder();
 
-            builder.addChangeOfStateField("Bool", BOOL_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("Byte", BYTE_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("Double", DOUBLE_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("Float", FLOAT_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("Int16", INT16_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("Int32", INT32_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("Int64", INT64_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("Integer", INTEGER_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("SByte", SBYTE_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("String", STRING_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("UInt16", UINT16_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("UInt32", UINT32_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("UInt64", UINT64_IDENTIFIER_READ_WRITE);
-            builder.addChangeOfStateField("UInteger", UINTEGER_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("Bool", BOOL_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("Byte", BYTE_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("Double", DOUBLE_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("Float", FLOAT_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("Int16", INT16_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("Int32", INT32_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("Int64", INT64_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("Integer", INTEGER_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("SByte", SBYTE_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("String", STRING_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("UInt16", UINT16_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("UInt32", UINT32_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("UInt64", UINT64_IDENTIFIER_READ_WRITE);
+        builder.addChangeOfStateField("UInteger", UINTEGER_IDENTIFIER_READ_WRITE);
+        //builder.addChangeOfStateField("DoesNotExists", DOES_NOT_EXIST_IDENTIFIER_READ_WRITE);
 
+        PlcSubscriptionRequest request = builder.build();
 
-            builder.addChangeOfStateField("DoesNotExists", DOES_NOT_EXIST_IDENTIFIER_READ_WRITE);
+        PlcSubscriptionResponse response = request.execute().get();
 
-            PlcSubscriptionRequest request = builder.build();
-
-            PlcSubscriptionResponse response = request.execute().get();
-
-            for (String subscriptionName : response.getFieldNames()) {
-                final PlcSubscriptionHandle subscriptionHandle = response.getSubscriptionHandle(subscriptionName);
-                subscriptionHandle.register(plcSubscriptionEvent -> {
-                    for (String fieldName : plcSubscriptionEvent.getFieldNames()) {
-                        System.out.println(plcSubscriptionEvent.getPlcValue(fieldName));
-                    }
-                });
-            }
-
-            opcuaConnection.close();
-            assert !opcuaConnection.isConnected();
-        } catch (Exception e) {
-            Assertions.fail("Exception during readVariables Test EXCEPTION: " + e.getMessage());
+        for (String subscriptionName : response.getFieldNames()) {
+            final PlcSubscriptionHandle subscriptionHandle = response.getSubscriptionHandle(subscriptionName);
+            subscriptionHandle.register(plcSubscriptionEvent -> {
+                for (String fieldName : plcSubscriptionEvent.getFieldNames()) {
+                    assert plcSubscriptionEvent.getResponseCode(fieldName).equals(PlcResponseCode.OK);
+                }
+            });
         }
+        Thread.sleep(1000);
+
+        opcuaConnection.close();
+        assert !opcuaConnection.isConnected();
+
     }
 }

@@ -18,6 +18,7 @@
 */
 package org.apache.plc4x.java.opcua.protocol;
 
+import org.apache.plc4x.java.api.exceptions.PlcInvalidFieldException;
 import org.apache.plc4x.java.api.messages.PlcSubscriptionEvent;
 import org.apache.plc4x.java.api.messages.PlcSubscriptionRequest;
 import org.apache.plc4x.java.api.model.PlcConsumerRegistration;
@@ -60,6 +61,7 @@ public class OpcuaSubscriptionHandle extends DefaultPlcSubscriptionHandle {
     private Long subscriptionId;
     private long cycleTime;
     private long revisedCycleTime;
+    private boolean complete = false;
 
     private final AtomicLong clientHandles = new AtomicLong(1L);
 
@@ -166,12 +168,28 @@ public class OpcuaSubscriptionHandle extends DefaultPlcSubscriptionHandle {
             Consumer<OpcuaMessageResponse> consumer = opcuaResponse -> {
                 CreateMonitoredItemsResponse responseMessage = null;
                 try {
-                    responseMessage = (CreateMonitoredItemsResponse) ExtensionObjectIO.staticParse(new ReadBuffer(opcuaResponse.getMessage(), true), false).getBody();
+                    ExtensionObjectDefinition unknownExtensionObject = ExtensionObjectIO.staticParse(new ReadBuffer(opcuaResponse.getMessage(), true), false).getBody();
+                    if (unknownExtensionObject instanceof CreateMonitoredItemsResponse) {
+                        responseMessage = (CreateMonitoredItemsResponse) unknownExtensionObject;
+                    } else {
+                        ServiceFault serviceFault = (ServiceFault) unknownExtensionObject;
+                        ResponseHeader header = (ResponseHeader) serviceFault.getResponseHeader();
+                        LOGGER.error("Subscription ServiceFault return from server with error code,  '{}'", header.getServiceResult().toString());
+                        plcSubscriber.onDisconnect(context);
+                    }
                 } catch (ParseException e) {
+                    LOGGER.error("Unable to parse the returned Subscription response");
                     e.printStackTrace();
+                    plcSubscriber.onDisconnect(context);
+                }
+                for (MonitoredItemCreateResult result : Arrays.stream(responseMessage.getResults()).toArray(MonitoredItemCreateResult[]::new)) {
+                    if (OpcuaStatusCode.enumForValue(result.getStatusCode().getStatusCode()) != OpcuaStatusCode.Good) {
+                        throw new PlcInvalidFieldException(fieldNames.get((int) result.getMonitoredItemId()));
+                    } else {
+                        LOGGER.debug("Field {} was added to the subscription", fieldNames.get((int) result.getMonitoredItemId() - 1));
+                    }
                 }
                 future.complete(responseMessage);
-
             };
 
             Consumer<TimeoutException> timeout = e -> {
@@ -325,6 +343,7 @@ public class OpcuaSubscriptionHandle extends DefaultPlcSubscriptionHandle {
                         e.printStackTrace();
                     }
                 }
+                complete = true;
             } catch (Exception e) {
                 LOGGER.error("Failed :(");
                 e.printStackTrace();
@@ -341,6 +360,9 @@ public class OpcuaSubscriptionHandle extends DefaultPlcSubscriptionHandle {
      */
     public void stopSubscriber() {
         this.destroy.set(true);
+        /*while (!complete) {
+            sleep();
+        }*/
     }
 
     /**

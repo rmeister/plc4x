@@ -44,7 +44,7 @@ import java.math.BigInteger;
  */
 public class OpcuaPlcDriverTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(OpcuaPlcDriverTest.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(OpcuaPlcDriverTest.class);
 
 
     // Read only variables of milo example server of version 3.6

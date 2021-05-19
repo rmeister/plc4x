@@ -143,10 +143,10 @@ public class SecureChannel {
         this.securityPolicy = "http://opcfoundation.org/UA/SecurityPolicy#" + configuration.getSecurityPolicy();
         this.ckp = configuration.getCertificateKeyPair();
 
-        if (configuration.getSecurityPolicy().equals("Basic256Sha256")) {
+        if (configuration.getSecurityPolicy() != null && configuration.getSecurityPolicy().equals("Basic256Sha256")) {
             //Sender Certificate gets populated during the discover phase when encryption is enabled.
             this.senderCertificate = configuration.getSenderCertificate();
-            this.encryptionHandler = new EncryptionHandler(this.ckp, this.senderCertificate);
+            this.encryptionHandler = new EncryptionHandler(this.ckp, this.senderCertificate, configuration.getSecurityPolicy());
             try {
                 this.publicCertificate = new PascalByteString(this.ckp.getCertificate().getEncoded().length, this.ckp.getCertificate().getEncoded());
                 this.isEncrypted = true;
@@ -155,6 +155,7 @@ public class SecureChannel {
             }
             this.thumbprint = configuration.getThumbprint();
         } else {
+            this.encryptionHandler = new EncryptionHandler(this.ckp, this.senderCertificate, configuration.getSecurityPolicy());
             this.publicCertificate = NULL_BYTE_STRING;
             this.thumbprint = NULL_BYTE_STRING;
             this.isEncrypted = false;
@@ -190,16 +191,18 @@ public class SecureChannel {
                     .expectResponse(OpcuaAPU.class, REQUEST_TIMEOUT)
                     .onTimeout(onTimeout)
                     .onError(error)
-                    .check(p -> p.getMessage() instanceof OpcuaMessageResponse)
+                    .unwrap(apuMessage -> encryptionHandler.decodeMessage(apuMessage))
                     .unwrap(p -> (OpcuaMessageResponse) p.getMessage())
-                    .handle(opcuaResponse -> {
-                        try {
-                            if (this.isEncrypted) {
-                                opcuaResponse = (OpcuaMessageResponse) OpcuaAPUIO.staticParse(encryptionHandler.decodeMessage(opcuaResponse, opcuaResponse.getMessage()), true).getMessage();
-                            }
-                        } catch (ParseException e) {
-                            throw new PlcRuntimeException("Error while decoding message");
+                    .check(p -> {
+                        LOGGER.info("{}", p.getSequenceNumber());
+                        LOGGER.info("{}", transactionId);
+                        if (p.getRequestId() == transactionId) {
+                            return true;
+                        } else {
+                            return false;
                         }
+                    })
+                    .handle(opcuaResponse -> {
                         consumer.accept(opcuaResponse);
                     });
             } catch (Exception e) {
@@ -302,19 +305,17 @@ public class SecureChannel {
             Consumer<Integer> requestConsumer = t -> {
                 context.sendRequest(apu)
                     .expectResponse(OpcuaAPU.class, REQUEST_TIMEOUT)
+                    .unwrap(apuMessage -> encryptionHandler.decodeMessage(apuMessage))
                     .check(p -> p.getMessage() instanceof OpcuaOpenResponse)
                     .unwrap(p -> (OpcuaOpenResponse) p.getMessage())
                     .handle(opcuaOpenResponse -> {
                         try {
-                            if (this.isEncrypted) {
-                                opcuaOpenResponse = (OpcuaOpenResponse) OpcuaAPUIO.staticParse(encryptionHandler.decodeMessage(opcuaOpenResponse, opcuaOpenResponse.getMessage()), true).getMessage();
-                            }
                             ReadBuffer readBuffer = new ReadBuffer(opcuaOpenResponse.getMessage(), true);
                             ExtensionObject message = ExtensionObjectIO.staticParse(readBuffer, false);
 
                             if (message.getBody() instanceof ServiceFault) {
                                 ServiceFault fault = (ServiceFault) message.getBody();
-                                LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCodes.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
+                                LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCode.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
                             } else {
                                 LOGGER.debug("Got Secure Response Connection Response");
                                 try {
@@ -431,7 +432,7 @@ public class SecureChannel {
                             ExtensionObject message = ExtensionObjectIO.staticParse(new ReadBuffer(opcuaMessageResponse.getMessage(), true), false);
                             if (message.getBody() instanceof ServiceFault) {
                                 ServiceFault fault = (ServiceFault) message.getBody();
-                                LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCodes.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
+                                LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCode.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
                             } else {
                                 LOGGER.debug("Got Create Session Response Connection Response");
                                 try {
@@ -557,7 +558,7 @@ public class SecureChannel {
                             ExtensionObject message = ExtensionObjectIO.staticParse(new ReadBuffer(opcuaActivateResponse.getMessage(), true), false);
                             if (message.getBody() instanceof ServiceFault) {
                                 ServiceFault fault = (ServiceFault) message.getBody();
-                                LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCodes.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
+                                LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCode.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
                             } else {
                                 ActivateSessionResponse activateMessageResponse = (ActivateSessionResponse) message.getBody();
 
@@ -767,7 +768,7 @@ public class SecureChannel {
                             ExtensionObject message = ExtensionObjectIO.staticParse(new ReadBuffer(opcuaOpenResponse.getMessage(), true), false);
                             if (message.getBody() instanceof ServiceFault) {
                                 ServiceFault fault = (ServiceFault) message.getBody();
-                                LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCodes.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
+                                LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCode.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
                             } else {
                                 LOGGER.debug("Got Secure Response Connection Response");
                                 try {
@@ -849,7 +850,7 @@ public class SecureChannel {
                             ExtensionObject message = ExtensionObjectIO.staticParse(new ReadBuffer(opcuaMessageResponse.getMessage(), true), false);
                             if (message.getBody() instanceof ServiceFault) {
                                 ServiceFault fault = (ServiceFault) message.getBody();
-                                LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCodes.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
+                                LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCode.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
                             } else {
                                 LOGGER.debug("Got Create Session Response Connection Response");
                                 GetEndpointsResponse response = (GetEndpointsResponse) message.getBody();
@@ -1004,19 +1005,17 @@ public class SecureChannel {
                     Consumer<Integer> requestConsumer = t -> {
                         context.sendRequest(apu)
                             .expectResponse(OpcuaAPU.class, REQUEST_TIMEOUT)
+                            .unwrap(apuMessage -> encryptionHandler.decodeMessage(apuMessage))
                             .check(p -> p.getMessage() instanceof OpcuaOpenResponse)
                             .unwrap(p -> (OpcuaOpenResponse) p.getMessage())
                             .handle(opcuaOpenResponse -> {
                                 try {
-                                    if (this.isEncrypted) {
-                                        opcuaOpenResponse = (OpcuaOpenResponse) OpcuaAPUIO.staticParse(encryptionHandler.decodeMessage(opcuaOpenResponse, opcuaOpenResponse.getMessage()), true).getMessage();
-                                    }
                                     ReadBuffer readBuffer = new ReadBuffer(opcuaOpenResponse.getMessage(), true);
                                     ExtensionObject message = ExtensionObjectIO.staticParse(readBuffer, false);
 
                                     if (message.getBody() instanceof ServiceFault) {
                                         ServiceFault fault = (ServiceFault) message.getBody();
-                                        LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCodes.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
+                                        LOGGER.error("Failed to connect to opc ua server for the following reason:- {}, {}", ((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode(), OpcuaStatusCode.enumForValue(((ResponseHeader) fault.getResponseHeader()).getServiceResult().getStatusCode()));
                                     } else {
                                         LOGGER.debug("Got Secure Response Connection Response");
                                         OpenSecureChannelResponse openSecureChannelResponse = (OpenSecureChannelResponse) message.getBody();

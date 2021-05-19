@@ -20,7 +20,6 @@ package org.apache.plc4x.java.opcua.protocol;
 
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.RandomUtils;
-import org.apache.plc4x.java.api.exceptions.PlcConnectionException;
 import org.apache.plc4x.java.api.exceptions.PlcRuntimeException;
 import org.apache.plc4x.java.api.messages.*;
 import org.apache.plc4x.java.api.model.PlcConsumerRegistration;
@@ -28,9 +27,7 @@ import org.apache.plc4x.java.api.model.PlcSubscriptionHandle;
 import org.apache.plc4x.java.api.types.PlcResponseCode;
 import org.apache.plc4x.java.api.value.PlcValue;
 import org.apache.plc4x.java.opcua.config.OpcuaConfiguration;
-import org.apache.plc4x.java.opcua.context.CertificateKeyPair;
 import org.apache.plc4x.java.opcua.context.SecureChannel;
-import org.apache.plc4x.java.opcua.context.EncryptionHandler;
 import org.apache.plc4x.java.opcua.field.OpcuaField;
 import org.apache.plc4x.java.opcua.readwrite.*;
 import org.apache.plc4x.java.opcua.readwrite.io.*;
@@ -46,18 +43,11 @@ import org.apache.plc4x.java.spi.messages.*;
 import org.apache.plc4x.java.spi.messages.utils.ResponseItem;
 import org.apache.plc4x.java.spi.model.DefaultPlcConsumerRegistration;
 import org.apache.plc4x.java.spi.model.DefaultPlcSubscriptionField;
-import org.apache.plc4x.java.spi.transaction.RequestTransactionManager;
 import org.apache.plc4x.java.spi.values.IEC61131ValueHandler;
 import org.apache.plc4x.java.spi.values.PlcList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateEncodingException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -68,20 +58,13 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements HasConfiguration<OpcuaConfiguration>, PlcSubscriber {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OpcuaProtocolLogic.class);
-
-
-
     private static final int DEFAULT_CONNECTION_LIFETIME = 36000000;
-
-
     private static final String PASSWORD_ENCRYPTION_ALGORITHM = "http://www.w3.org/2001/04/xmlenc#rsa-oaep";
     private static final PascalString SECURITY_POLICY_NONE = new PascalString("http://opcfoundation.org/UA/SecurityPolicy#None");
     protected static final PascalString NULL_STRING = new PascalString( "");
@@ -100,22 +83,11 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
     private static final PascalString APPLICATION_URI = new PascalString("urn:apache:plc4x:client");
     private static final PascalString PRODUCT_URI = new PascalString("urn:apache:plc4x:client");
     private static final PascalString APPLICATION_TEXT = new PascalString("OPCUA client for the Apache PLC4X:PLC4J project");
-
-
-
-
     private final String sessionName = "UaSession:" + APPLICATION_TEXT.getStringValue() + ":" + RandomStringUtils.random(20, true, true);
     private final byte[] clientNonce = RandomUtils.nextBytes(40);
-
     private OpcuaConfiguration configuration;
-
-
     private Map<Long, OpcuaSubscriptionHandle> subscriptions = new HashMap<>();
     private SecureChannel channel;
-
-
-
-
     private AtomicBoolean securedConnection = new AtomicBoolean(false);
 
     @Override
@@ -461,7 +433,7 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
                     LOGGER.error("Data type - " +  variant.getClass() + " is not supported ");
                 }
             } else {
-                if (results[count].getStatusCode().getStatusCode() == OpcuaStatusCodes.BadNodeIdUnknown.getValue()) {
+                if (results[count].getStatusCode().getStatusCode() == OpcuaStatusCode.BadNodeIdUnknown.getValue()) {
                     responseCode = PlcResponseCode.NOT_FOUND;
                 } else {
                     responseCode = PlcResponseCode.UNSUPPORTED;
@@ -786,7 +758,7 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
         Iterator<String> responseIterator = request.getFieldNames().iterator();
         for (int i = 0; i < request.getFieldNames().size(); i++ ) {
             String fieldName = responseIterator.next();
-            OpcuaStatusCodes statusCode = OpcuaStatusCodes.enumForValue(results[i].getStatusCode());
+            OpcuaStatusCode statusCode = OpcuaStatusCode.enumForValue(results[i].getStatusCode());
             switch (statusCode) {
                 case Good:
                     responseMap.put(fieldName, PlcResponseCode.OK);
@@ -893,7 +865,7 @@ public class OpcuaProtocolLogic extends Plc4xProtocolBase<OpcuaAPU> implements H
                 LOGGER.error("Timeout while waiting on the crate subscription response");
                 e.printStackTrace();
                 // Pass the response back to the application.
-                future.completeExceptionally(t);
+                future.completeExceptionally(e);
             };
 
             /* Functional Consumer example using inner class */

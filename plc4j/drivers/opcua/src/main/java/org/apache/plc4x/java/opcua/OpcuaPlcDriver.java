@@ -160,8 +160,6 @@ public class OpcuaPlcDriver extends GeneratedDriverBase<OpcuaAPU> {
         final String transportEndpoint = matcher.group("transportEndpoint");
         final String paramString = matcher.group("paramString");
 
-        System.out.println(protocolCode + " - " + transportCode + " - " + transportHost + " - " +  transportPort + " - " +  transportEndpoint + " - " +  paramString);
-
         // Check if the protocol code matches this driver.
         if(!protocolCode.equals(getProtocolCode())) {
             // Actually this shouldn't happen as the DriverManager should have not used this driver in the first place.
@@ -198,7 +196,6 @@ public class OpcuaPlcDriver extends GeneratedDriverBase<OpcuaAPU> {
         configure(configuration, transport);
 
         // Create an instance of the communication channel which the driver should use.
-        System.out.println(transportHost + ":" + transportPort);
         ChannelFactory channelFactory = transport.createChannelFactory(transportHost + ":" + transportPort);
         if(channelFactory == null) {
             throw new PlcConnectionException("Unable to get channel factory from url " + transportHost + ":" + transportPort);
@@ -220,7 +217,7 @@ public class OpcuaPlcDriver extends GeneratedDriverBase<OpcuaAPU> {
             awaitDisconnectComplete = Boolean.parseBoolean(System.getProperty(PROPERTY_PLC4X_FORCE_AWAIT_DISCONNECT_COMPLETE));
         }
 
-        if (!(configuration.getSecurityPolicy().equals("None"))) {
+        if (configuration.getSecurityPolicy() != null && !(configuration.getSecurityPolicy().equals("None"))) {
             try {
                 LOGGER.info(configuration.getKeyStoreFile());
                 LOGGER.info(configuration.getCertDirectory());
