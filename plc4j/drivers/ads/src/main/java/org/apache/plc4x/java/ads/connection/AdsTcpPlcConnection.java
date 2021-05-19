@@ -184,7 +184,7 @@ public class AdsTcpPlcConnection extends AdsAbstractPlcConnection implements Plc
                 }
 
                 final TransmissionMode transmissionMode;
-                long cycleTime = 4000000;
+                long cycleTime = 0;
                 switch (subscriptionPlcField.getPlcSubscriptionType()) {
                     case CYCLIC:
                         transmissionMode = TransmissionMode.DefinedValues.ADSTRANS_SERVERCYCLE;
@@ -209,7 +209,7 @@ public class AdsTcpPlcConnection extends AdsAbstractPlcConnection implements Plc
                     Length.of(adsDataType.getTargetByteSize() * (long) numberOfElements),
                     transmissionMode,
                     // We set max delay to cycle time as we don't have a second parameter for this in the plc4j-api
-                    MaxDelay.of(cycleTime + 1),
+                    MaxDelay.of(4000000 + 1),
                     CycleTime.of(cycleTime)
                 );
 
