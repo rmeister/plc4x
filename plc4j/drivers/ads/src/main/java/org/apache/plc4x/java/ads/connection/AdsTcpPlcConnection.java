@@ -209,7 +209,7 @@ public class AdsTcpPlcConnection extends AdsAbstractPlcConnection implements Plc
                     Length.of(adsDataType.getTargetByteSize() * (long) numberOfElements),
                     transmissionMode,
                     // We set max delay to cycle time as we don't have a second parameter for this in the plc4j-api
-                    MaxDelay.of(4000000 + 1),
+                    MaxDelay.of(0),
                     CycleTime.of(cycleTime)
                 );
 
